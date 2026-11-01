@@ -6,7 +6,9 @@ import (
 	"os"
 )
 
-func Logger() *slog.Logger {
+var LOG *slog.Logger = logger()
+
+func logger() *slog.Logger {
 	var level slog.Level
 	s := os.Getenv("LOG_LEVEL")
 	if s == "" {
