@@ -1,0 +1,14 @@
+# Local / personal
+*.local.md
+.claude/settings.local.json
+
+# Go
+*.exe
+*.test
+*.out
+/bin/
+
+# IDE / OS
+.vscode/
+.idea/
+Thumbs.db
