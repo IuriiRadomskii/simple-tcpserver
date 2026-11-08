@@ -12,8 +12,6 @@ type Config struct {
 	MaxConnections        uint          `env:"MAX_CONNS" envDefault:"16"`
 	AcceptRetry           time.Duration `env:"ACCEPT_RETRY" envDefault:"250ms"`
 	ServerShutdownTimeout time.Duration `env:"SHUTDOWN_TIMEOUT" envDefault:"10s"`
-	ReadTimeout           time.Duration `env:"READ_TIMEOUT"  envDefault:"5s"`
-	WriteTimeout          time.Duration `env:"WRITE_TIMEOUT" envDefault:"5s"`
 	ConnTimeout           time.Duration `env:"CONN_TIMEOUT"  envDefault:"60s"`
 }
 
@@ -28,8 +26,6 @@ func LoadTestConfig() (Config, error) {
 		MaxConnections:        8,
 		AcceptRetry:           time.Millisecond * 250,
 		ServerShutdownTimeout: time.Second * 10,
-		ReadTimeout:           time.Second * 5,
-		WriteTimeout:          time.Second * 5,
 		ConnTimeout:           time.Second * 60,
 	}, nil
 }

@@ -24,10 +24,7 @@ func run() {
 
 	handler := handlers.NewHandler(processors.NewProcessor(), config)
 
-	server := &server.Server{
-		Config:  config,
-		Handler: handler,
-	}
+	server := server.NewServer(config, handler)
 
 	go server.Start(ctx)
 

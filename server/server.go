@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net"
-	"os"
 	"sync"
 	"sync/atomic"
 	"tcp-server/config"
@@ -14,26 +13,57 @@ import (
 )
 
 type Server struct {
-	listener       net.Listener
-	connCounter    atomic.Int32
-	Config         config.Config
-	wg             sync.WaitGroup
-	Handler        handlers.Handler
-	acceptDone     chan struct{}
-	connParentCtx  context.Context
-	connCancelFunc context.CancelFunc
+	isRunning   atomic.Bool
+	mu          sync.Mutex
+	listener    net.Listener
+	connCounter atomic.Int32
+	Config      config.Config
+	wg          sync.WaitGroup
+	Handler     handlers.Handler
+	acceptDone  chan struct{}
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
-func (s *Server) Start(ctx context.Context) {
+func NewServer(cfg config.Config, h handlers.Handler) *Server {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Server{
+		isRunning:  atomic.Bool{},
+		Config:     cfg,
+		Handler:    h,
+		acceptDone: make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
+	}
+}
+
+func (s *Server) Start(notifyContext context.Context) bool {
+	if s == nil {
+		logger.LOG.Error("nil server pointer")
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.isRunning.CompareAndSwap(false, true) {
+		logger.LOG.Warn("server already started")
+		return false
+	}
 	logger.LOG.Info("starting server...")
+
 	listener, err := s.listen()
 	if err != nil {
 		//do smth else if Start() was called twice in a row
 		logger.LOG.Error("listen failed", "port", s.Config.ServerPort, "error", err)
-		os.Exit(1)
+		return false
 	}
+	go s.startInternal(notifyContext, listener)
+	return true
+}
 
-	stop := context.AfterFunc(ctx, func() {
+func (s *Server) startInternal(notifyContext context.Context, listener net.Listener) error {
+
+	defer close(s.acceptDone)
+	stop := context.AfterFunc(notifyContext, func() {
 		logger.LOG.Info("stop listen")
 		s.listener.Close()
 	})
@@ -41,16 +71,12 @@ func (s *Server) Start(ctx context.Context) {
 
 	logger.LOG.Info("listen", "addr", listener.Addr().String())
 
-	s.acceptDone = make(chan struct{})
-	defer close(s.acceptDone)
-	s.connParentCtx, s.connCancelFunc = context.WithCancel(context.Background())
-
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				logger.LOG.Debug("connection closed. exit main loop.", "error", err)
-				return
+				break
 			}
 			time.Sleep(s.Config.AcceptRetry)
 			continue
@@ -69,14 +95,26 @@ func (s *Server) Start(ctx context.Context) {
 						s.connCounter.Add(-1)
 						logger.LOG.Debug("close connection")
 					}()
-					s.handle(s.connParentCtx, conn)
+					s.handle(s.ctx, conn)
 				})
 			}
 		}
 	}
+	return nil
 }
 
-func (s *Server) Stop(ctx context.Context, timeout time.Duration) {
+func (s *Server) Stop(ctx context.Context, timeout time.Duration) bool {
+	if s == nil {
+		logger.LOG.Error("nil server pointer")
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.isRunning.CompareAndSwap(true, false) {
+		logger.LOG.Warn("server already stoped")
+		return false
+	}
+	<-s.acceptDone
 	gracefull := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -85,13 +123,15 @@ func (s *Server) Stop(ctx context.Context, timeout time.Duration) {
 	select {
 	case <-gracefull:
 		logger.LOG.Info("all handlers finished")
-		s.connCancelFunc()
+		s.cancel()
 	case <-time.After(timeout):
 		logger.LOG.Warn("finished by timeout")
-		s.connCancelFunc()
-		<-gracefull
+		s.cancel()
 	}
-	logger.LOG.Info("server stopeed")
+	logger.LOG.Info("closing resources")
+	<-time.After(time.Duration(1_000_000_000)) //wait a little while resources are being closed and events are being logged
+	logger.LOG.Info("server stoped")
+	return true
 }
 
 func (s *Server) listen() (net.Listener, error) {
@@ -100,41 +140,28 @@ func (s *Server) listen() (net.Listener, error) {
 	return listener, err
 }
 
-func (s *Server) handle(connParentCtx context.Context, conn net.Conn) {
+func (s *Server) handle(ctx context.Context, conn net.Conn) {
 	logger.LOG.Debug("handle connection")
-	connTimeoutCtx, cancel := context.WithTimeout(connParentCtx, s.Config.ConnTimeout)
+	//overall socket call timeout
+	connCtx, cancel := context.WithTimeout(ctx, s.Config.ConnTimeout)
 	defer cancel()
-
-	stop := context.AfterFunc(connTimeoutCtx, func() { conn.SetDeadline(time.Now()) })
+	stop := context.AfterFunc(connCtx, func() {
+		//TODO write error before deadline
+		conn.SetDeadline(time.Now())
+	})
 	defer stop()
 
-	conn.SetReadDeadline(currDeadline(connTimeoutCtx, s.Config.ReadTimeout))
-	if connTimeoutCtx.Err() != nil {
-		logger.LOG.Error("connCtx.Err")
-		return
-	}
 	req, errorRead := s.Handler.Read(conn)
 	if errorRead != nil {
-		logger.LOG.Error("error read")
+		logger.LOG.Error("error read", "error", errorRead)
 		return
 	}
 
 	resp := s.Handler.Process(req)
 
-	conn.SetWriteDeadline(currDeadline(connTimeoutCtx, s.Config.WriteTimeout))
-	if connTimeoutCtx.Err() != nil {
-		return
-	}
 	_, errorWrite := s.Handler.Write(conn, resp)
 	if errorWrite != nil {
-		logger.LOG.Error("error write")
+		logger.LOG.Error("error write", "error", errorWrite)
 	}
-}
 
-func currDeadline(ctx context.Context, d time.Duration) time.Time {
-	t := time.Now().Add(d)
-	if dl, ok := ctx.Deadline(); ok && dl.Before(t) {
-		return dl
-	}
-	return t
 }
