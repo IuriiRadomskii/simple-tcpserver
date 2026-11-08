@@ -9,16 +9,24 @@ import (
 
 // handler doesn't close connections
 // handler should read bytes slice, pass it to processor and write result
-type Handler struct {
+type Handler interface {
+	Read(reader io.Reader) ([]byte, error)
+	Process(req []byte) []byte
+	Write(writer io.Writer, resp []byte) (int, error)
+}
+
+type HandlerImpl struct {
 	config    config.Config
 	processor processors.Processor
 }
 
-func NewHandler(p processors.Processor, c config.Config) Handler {
-	return Handler{processor: p, config: c}
+var _ Handler = HandlerImpl{}
+
+func NewHandler(p processors.Processor, c config.Config) HandlerImpl {
+	return HandlerImpl{processor: p, config: c}
 }
 
-func (h Handler) Read(reader io.Reader) ([]byte, error) {
+func (h HandlerImpl) Read(reader io.Reader) ([]byte, error) {
 	req, err := io.ReadAll(io.LimitReader(reader, int64(h.config.MaxBytes)))
 	if err != nil {
 		logger.LOG.Error("error reading", "error", err)
@@ -28,11 +36,11 @@ func (h Handler) Read(reader io.Reader) ([]byte, error) {
 	return req, nil
 }
 
-func (h Handler) Process(req []byte) []byte {
+func (h HandlerImpl) Process(req []byte) []byte {
 	return h.processor.Process(req)
 }
 
-func (h Handler) Write(writer io.Writer, resp []byte) (int, error) {
+func (h HandlerImpl) Write(writer io.Writer, resp []byte) (int, error) {
 	logger.LOG.Debug("response: " + string(resp))
 	return writer.Write(resp)
 }

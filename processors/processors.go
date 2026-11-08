@@ -4,14 +4,24 @@ import (
 	"time"
 )
 
-// processor accepts raw bytes, does work and return result to handler
-type Processor struct{}
+const (
+	NOOP = "\n--------------\nNOOP\n--------------\n"
+)
 
-func NewProcessor() Processor {
-	return Processor{}
+// processor accepts raw bytes, does work and return result to handler
+type Processor interface {
+	Process(req []byte) []byte
 }
 
-func (p Processor) Process(req []byte) []byte {
+type ProcessorImpl struct{}
+
+var _ Processor = ProcessorImpl{}
+
+func NewProcessor() ProcessorImpl {
+	return ProcessorImpl{}
+}
+
+func (p ProcessorImpl) Process(req []byte) []byte {
 	input := string(req)
 	switch input {
 	case "FAST":
@@ -21,5 +31,5 @@ func (p Processor) Process(req []byte) []byte {
 	default:
 		func() {}()
 	}
-	return []byte("\n--------------\nNOOP\n--------------\n")
+	return []byte(NOOP)
 }

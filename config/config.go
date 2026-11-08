@@ -18,14 +18,3 @@ type Config struct {
 func LoadConfig() (Config, error) {
 	return env.ParseAs[Config]()
 }
-
-func LoadTestConfig() (Config, error) {
-	return Config{
-		ServerPort:            "8080",
-		MaxBytes:              10,
-		MaxConnections:        8,
-		AcceptRetry:           time.Millisecond * 250,
-		ServerShutdownTimeout: time.Second * 10,
-		ConnTimeout:           time.Second * 60,
-	}, nil
-}

@@ -44,7 +44,7 @@ func (s *Server) Start(notifyContext context.Context) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.isRunning.CompareAndSwap(false, true) {
+	if !s.isRunning.CompareAndSwap(false, true) {
 		logger.LOG.Warn("server already started")
 		return false
 	}
@@ -110,7 +110,7 @@ func (s *Server) Stop(ctx context.Context, timeout time.Duration) bool {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.isRunning.CompareAndSwap(true, false) {
+	if !s.isRunning.CompareAndSwap(true, false) {
 		logger.LOG.Warn("server already stoped")
 		return false
 	}
@@ -128,8 +128,6 @@ func (s *Server) Stop(ctx context.Context, timeout time.Duration) bool {
 		logger.LOG.Warn("finished by timeout")
 		s.cancel()
 	}
-	logger.LOG.Info("closing resources")
-	<-time.After(time.Duration(1_000_000_000)) //wait a little while resources are being closed and events are being logged
 	logger.LOG.Info("server stoped")
 	return true
 }
