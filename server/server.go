@@ -12,10 +12,18 @@ import (
 	"time"
 )
 
-type Server struct {
-	isRunning   atomic.Bool
+type state int
+
+const (
+	stateNew state = iota
+	stateRunning
+	stateStopped
+)
+
+type TCPServer struct {
+	state       state
 	mu          sync.Mutex
-	listener    net.Listener
+	listener    *net.TCPListener
 	connCounter atomic.Int32
 	Config      config.Config
 	wg          sync.WaitGroup
@@ -25,10 +33,9 @@ type Server struct {
 	cancel      context.CancelFunc
 }
 
-func NewServer(cfg config.Config, h handlers.Handler) *Server {
+func NewServer(cfg config.Config, h handlers.Handler) *TCPServer {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Server{
-		isRunning:  atomic.Bool{},
+	return &TCPServer{
 		Config:     cfg,
 		Handler:    h,
 		acceptDone: make(chan struct{}),
@@ -37,31 +44,30 @@ func NewServer(cfg config.Config, h handlers.Handler) *Server {
 	}
 }
 
-func (s *Server) Start(notifyContext context.Context) bool {
+func (s *TCPServer) Start(ctx context.Context) (bool, error) {
 	if s == nil {
-		logger.LOG.Error("nil server pointer")
-		return false
+		return false, errors.New("nil server")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.isRunning.CompareAndSwap(false, true) {
-		logger.LOG.Warn("server already started")
-		return false
+	switch s.state {
+	case stateRunning:
+		return false, errors.New("server aready running")
+	case stateStopped:
+		return false, errors.New("server was stopped")
 	}
-	logger.LOG.Info("starting server...")
-
+	logger.LOG.Info("server is starting...")
 	listener, err := s.listen()
 	if err != nil {
-		//do smth else if Start() was called twice in a row
-		logger.LOG.Error("listen failed", "port", s.Config.ServerPort, "error", err)
-		return false
+		return false, errors.Join(errors.New("listener error"), err)
 	}
-	go s.startInternal(notifyContext, listener)
-	return true
+	s.listener = listener
+	s.state = stateRunning
+	go s.startInternal(ctx, listener)
+	return true, nil
 }
 
-func (s *Server) startInternal(notifyContext context.Context, listener net.Listener) error {
-
+func (s *TCPServer) startInternal(notifyContext context.Context, listener net.Listener) {
 	defer close(s.acceptDone)
 	stop := context.AfterFunc(notifyContext, func() {
 		logger.LOG.Info("stop listen")
@@ -70,12 +76,11 @@ func (s *Server) startInternal(notifyContext context.Context, listener net.Liste
 	defer stop()
 
 	logger.LOG.Info("listen", "addr", listener.Addr().String())
-
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
-				logger.LOG.Debug("connection closed. exit main loop.", "error", err)
+				logger.LOG.Info("connection closed. exit main loop.", "error", err)
 				break
 			}
 			time.Sleep(s.Config.AcceptRetry)
@@ -100,21 +105,25 @@ func (s *Server) startInternal(notifyContext context.Context, listener net.Liste
 			}
 		}
 	}
-	return nil
+	logger.LOG.Debug("exit main loop")
 }
 
-func (s *Server) Stop(ctx context.Context, timeout time.Duration) bool {
+func (s *TCPServer) Stop(cancel context.CancelFunc, timeout time.Duration) (bool, error) {
 	if s == nil {
-		logger.LOG.Error("nil server pointer")
-		return false
+		return false, errors.New("nil server")
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if !s.isRunning.CompareAndSwap(true, false) {
-		logger.LOG.Warn("server already stoped")
-		return false
+	switch s.state {
+	case stateNew:
+		return false, errors.New("server not running")
+	case stateStopped:
+		return false, errors.New("already stopped")
 	}
+	logger.LOG.Info("stopping server")
+	cancel()
 	<-s.acceptDone
+	logger.LOG.Info("accept done")
 	gracefull := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -128,17 +137,18 @@ func (s *Server) Stop(ctx context.Context, timeout time.Duration) bool {
 		logger.LOG.Warn("finished by timeout")
 		s.cancel()
 	}
+	s.state = stateStopped
 	logger.LOG.Info("server stoped")
-	return true
+	return true, nil
 }
 
-func (s *Server) listen() (net.Listener, error) {
-	listener, err := net.Listen("tcp", ":"+s.Config.ServerPort)
-	s.listener = listener
+func (s *TCPServer) listen() (*net.TCPListener, error) {
+	tcpAddr := net.TCPAddrFromAddrPort(s.Config.AddrPort)
+	listener, err := net.ListenTCP("tcp", tcpAddr)
 	return listener, err
 }
 
-func (s *Server) handle(ctx context.Context, conn net.Conn) {
+func (s *TCPServer) handle(ctx context.Context, conn net.Conn) {
 	logger.LOG.Debug("handle connection")
 	//overall socket call timeout
 	connCtx, cancel := context.WithTimeout(ctx, s.Config.ConnTimeout)

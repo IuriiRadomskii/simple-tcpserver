@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/netip"
 	"os"
 	"os/signal"
 	"syscall"
@@ -18,11 +19,11 @@ func main() {
 }
 
 func run() {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	notifyContext, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	config := config.Config{
-		ServerPort:            "8080",
+		AddrPort:              netip.MustParseAddrPort("127.0.0.1:8080"),
 		MaxBytes:              10,
 		MaxConnections:        8,
 		AcceptRetry:           time.Millisecond * 250,
@@ -34,10 +35,12 @@ func run() {
 
 	server := server.NewServer(config, handler)
 
-	go server.Start(ctx)
+	cancelCtx, cancel := context.WithCancel(context.Background())
 
-	<-ctx.Done() //main blocked until os signall is arrived
+	go server.Start(cancelCtx)
+
+	<-notifyContext.Done() //main blocked until os signall is arrived
 	logger.LOG.Info("shutting down...")
 
-	server.Stop(ctx, config.ServerShutdownTimeout)
+	server.Stop(cancel, config.ServerShutdownTimeout)
 }
