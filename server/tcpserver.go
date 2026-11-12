@@ -33,7 +33,7 @@ type TCPServer struct {
 	cancel      context.CancelFunc
 }
 
-func NewServer(cfg config.Config, h handlers.Handler) *TCPServer {
+func NewTCPServer(cfg config.Config, h handlers.Handler) *TCPServer {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TCPServer{
 		Config:     cfg,

@@ -30,7 +30,7 @@ func TestServerStarts(t *testing.T) {
 	config := config.Config{
 		AddrPort: netip.MustParseAddrPort("127.0.0.1:8080"),
 	}
-	server := NewServer(config, handlers.HandlerImpl{})
+	server := NewTCPServer(config, handlers.HandlerImpl{})
 	ctx, cancel := context.WithCancel(context.Background())
 	started, err := server.Start(ctx)
 	if !started {
@@ -48,7 +48,7 @@ func TestServerConsecutiveStartsReturnsFalse(t *testing.T) {
 	config := config.Config{
 		AddrPort: netip.MustParseAddrPort("127.0.0.1:8080"),
 	}
-	server := NewServer(config, handlers.HandlerImpl{})
+	server := NewTCPServer(config, handlers.HandlerImpl{})
 	ctx, cancel := context.WithCancel(context.Background())
 	started, err := server.Start(ctx)
 	started, err = server.Start(ctx)
@@ -69,7 +69,7 @@ func TestServerStartOnOccupiedPortFails(t *testing.T) {
 	config := config.Config{
 		AddrPort: netip.MustParseAddrPort("127.0.0.1:" + port),
 	}
-	server := NewServer(config, handlers.HandlerImpl{})
+	server := NewTCPServer(config, handlers.HandlerImpl{})
 	ctx, cancel := context.WithCancel(context.Background())
 	started, _ := server.Start(ctx)
 	if started {
@@ -85,7 +85,7 @@ func TestServerStop(t *testing.T) {
 	config := config.Config{
 		AddrPort: netip.MustParseAddrPort("127.0.0.1:0"),
 	}
-	server := NewServer(config, handlers.HandlerImpl{})
+	server := NewTCPServer(config, handlers.HandlerImpl{})
 	ctx, cancel := context.WithCancel(context.Background())
 	started, _ := server.Start(ctx)
 	if !started {
@@ -145,7 +145,7 @@ func TestServerAcceptsRequests(t *testing.T) {
 	}
 
 	received := make(chan []byte, 1)
-	server := NewServer(config, MockHandler{
+	server := NewTCPServer(config, MockHandler{
 		readFunc: func(reader io.Reader) ([]byte, error) {
 			buf, err := io.ReadAll(reader)
 			received <- buf

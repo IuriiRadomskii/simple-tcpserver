@@ -33,7 +33,7 @@ func run() {
 
 	handler := handlers.NewHandler(processors.NewProcessor(), config)
 
-	server := server.NewServer(config, handler)
+	server := server.NewTCPServer(config, handler)
 
 	cancelCtx, cancel := context.WithCancel(context.Background())
 

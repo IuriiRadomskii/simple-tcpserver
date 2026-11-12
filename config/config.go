@@ -60,3 +60,19 @@ func LoadConfig() (Config, error) {
 	}
 	return cfg, nil
 }
+
+type ClientConfig struct {
+	ServerAddrPort netip.AddrPort `env:"CLIENT_SERVER_ADDR" envDefault:"127.0.0.1:55555"`
+	MaxRespBytes   uint           `env:"CLIENT_MAX_RESP_BYTES" envDefault:"1000000"`
+	DialTimeout    time.Duration  `env:"CLIENT_DIAL_TIMEOUT" envDefault:"5s"`
+	RequestTimeout time.Duration  `env:"CLIENT_REQUEST_TIMEOUT" envDefault:"60s"`
+}
+
+// LoadClientConfig builds client config from envDefault tags overridden by env variables
+func LoadClientConfig() (ClientConfig, error) {
+	var cfg ClientConfig
+	if err := env.Parse(&cfg); err != nil {
+		return ClientConfig{}, err
+	}
+	return cfg, nil
+}
